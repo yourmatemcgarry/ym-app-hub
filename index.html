@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Mates Brewing — App Hub</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍺</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="hub-header">
+      <p class="wordmark">Your Mates Brewing</p>
+      <h1 class="hub-title">App Hub</h1>
+      <p class="hub-tagline">Every internal tool and dashboard, one link away.</p>
+      <div class="divider"></div>
+    </header>
+
+    <div class="search-box">
+      <input type="text" id="search" placeholder="Search apps…" autocomplete="off">
+    </div>
+
+    <div id="grid" class="link-grid"></div>
+    <div id="empty" class="empty-state" style="display:none;">
+      No apps added yet. Open <a href="admin.html">admin.html</a> to add the first link.
+    </div>
+    <div id="noresults" class="empty-state" style="display:none;">
+      No apps match your search.
+    </div>
+    <div id="loading" class="empty-state">Loading…</div>
+
+    <footer class="hub-footer">
+      <a href="admin.html">Manage links</a>
+    </footer>
+  </div>
+
+  <script src="api.js"></script>
+  <script>
+    const grid = document.getElementById('grid');
+    const emptyEl = document.getElementById('empty');
+    const noResultsEl = document.getElementById('noresults');
+    const loadingEl = document.getElementById('loading');
+    const search = document.getElementById('search');
+    let links = [];
+
+    function render(list) {
+      grid.innerHTML = '';
+      if (links.length === 0) {
+        emptyEl.style.display = 'block';
+        noResultsEl.style.display = 'none';
+        return;
+      }
+      emptyEl.style.display = 'none';
+      if (list.length === 0) {
+        noResultsEl.style.display = 'block';
+        return;
+      }
+      noResultsEl.style.display = 'none';
+      for (const item of list) {
+        const a = document.createElement('a');
+        a.className = 'link-card';
+        a.href = item.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = `
+          <span class="icon">${item.icon || '🔗'}</span>
+          <div class="name">${escapeHtml(item.name || 'Untitled')}</div>
+          <div class="desc">${escapeHtml(item.description || '')}</div>
+        `;
+        grid.appendChild(a);
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      const filtered = links.filter(item =>
+        (item.name || '').toLowerCase().includes(q) ||
+        (item.description || '').toLowerCase().includes(q)
+      );
+      render(filtered);
+    });
+
+    (async function init() {
+      try {
+        links = await window.LinksAPI.list();
+      } catch (err) {
+        links = [];
+        loadingEl.textContent = 'Could not load the app list right now. Try refreshing.';
+        console.error(err);
+        return;
+      }
+      loadingEl.style.display = 'none';
+      render(links);
+    })();
+  </script>
+</body>
+</html>

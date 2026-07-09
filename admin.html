@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Links — Your Mates Brewing App Hub</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <a href="index.html" class="back-link">&larr; Back to App Hub</a>
+
+    <header class="hub-header" style="margin-bottom:24px;">
+      <p class="wordmark">Your Mates Brewing</p>
+      <h1 class="hub-title" style="font-size:26px;">Manage Links <span id="statusBadge" class="status-badge clean" style="display:none;"></span></h1>
+    </header>
+
+    <div class="admin-note">
+      Changes here save automatically and go live on the App Hub for everyone within a second or two — same as the pricing guide. No publishing step, no login.
+    </div>
+
+    <div id="loadError" class="admin-note" style="display:none;border-left-color:var(--danger);"></div>
+
+    <div id="mainUi" style="display:none;">
+      <div class="panel">
+        <h2 id="formTitle">Add a link</h2>
+        <div class="form-row">
+          <label for="f_icon">Icon</label>
+          <input type="text" id="f_icon" placeholder="🍺 (any emoji, optional)" maxlength="4">
+        </div>
+        <div class="form-row">
+          <label for="f_name">Name</label>
+          <input type="text" id="f_name" placeholder="e.g. Taproom Scheduler">
+        </div>
+        <div class="form-row">
+          <label for="f_url">URL</label>
+          <input type="url" id="f_url" placeholder="https://…">
+        </div>
+        <div class="form-row">
+          <label for="f_desc">Blurb</label>
+          <input type="text" id="f_desc" placeholder="One line about what it does (optional)">
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="saveBtn">Add link</button>
+          <button class="btn ghost" id="cancelBtn" style="display:none;">Cancel edit</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Current links (<span id="countLabel">0</span>)</h2>
+        <div id="linkList"></div>
+        <div id="emptyList" style="display:none;color:var(--text-muted);font-size:13.5px;">
+          No links yet — add your first one above.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Backup</h2>
+        <p style="color:var(--text-muted);font-size:13.5px;margin-top:0;">
+          Links save live automatically — this is just an optional export in case you ever want a local copy.
+        </p>
+        <div class="btn-row">
+          <button class="btn" id="downloadBtn">Download backup (links.json)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="api.js"></script>
+  <script>
+    let live = [];
+    let editingId = null;
+
+    const el = {
+      icon: document.getElementById('f_icon'),
+      name: document.getElementById('f_name'),
+      url: document.getElementById('f_url'),
+      desc: document.getElementById('f_desc'),
+      saveBtn: document.getElementById('saveBtn'),
+      cancelBtn: document.getElementById('cancelBtn'),
+      formTitle: document.getElementById('formTitle'),
+      list: document.getElementById('linkList'),
+      emptyList: document.getElementById('emptyList'),
+      countLabel: document.getElementById('countLabel'),
+      statusBadge: document.getElementById('statusBadge'),
+      toast: document.getElementById('toast'),
+      mainUi: document.getElementById('mainUi'),
+      loadError: document.getElementById('loadError'),
+    };
+
+    function uid() {
+      return 'l_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    function showToast(msg) {
+      el.toast.textContent = msg;
+      el.toast.classList.add('show');
+      setTimeout(() => el.toast.classList.remove('show'), 2200);
+    }
+
+    function renderList() {
+      el.list.innerHTML = '';
+      el.countLabel.textContent = live.length;
+      el.emptyList.style.display = live.length ? 'none' : 'block';
+      live.forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'link-row';
+        row.innerHTML = `
+          <div class="icon">${item.icon || '🔗'}</div>
+          <div class="info">
+            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="url">${escapeHtml(item.url)}</div>
+            <div class="desc">${escapeHtml(item.description || '')}</div>
+          </div>
+          <div class="actions">
+            <button class="btn small" data-act="up" ${idx === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn small" data-act="down" ${idx === live.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn small" data-act="edit">Edit</button>
+            <button class="btn small danger" data-act="del">Delete</button>
+          </div>
+        `;
+        row.querySelector('[data-act=up]').addEventListener('click', () => moveItem(idx, -1));
+        row.querySelector('[data-act=down]').addEventListener('click', () => moveItem(idx, 1));
+        row.querySelector('[data-act=edit]').addEventListener('click', () => startEdit(item.id));
+        row.querySelector('[data-act=del]').addEventListener('click', () => deleteItem(item.id));
+        el.list.appendChild(row);
+      });
+    }
+
+    async function persist(successMsg) {
+      el.statusBadge.style.display = 'inline-block';
+      el.statusBadge.textContent = 'saving…';
+      el.statusBadge.className = 'status-badge dirty';
+      try {
+        await window.LinksAPI.save(live);
+        el.statusBadge.textContent = 'live ✓';
+        el.statusBadge.className = 'status-badge clean';
+        showToast(successMsg);
+      } catch (err) {
+        el.statusBadge.textContent = 'save failed';
+        el.statusBadge.className = 'status-badge dirty';
+        alert('Could not save (' + err.message + '). Check your connection and try again — your change is still in this form/list, nothing is lost yet.');
+      }
+      renderList();
+    }
+
+    function moveItem(idx, dir) {
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= live.length) return;
+      [live[idx], live[newIdx]] = [live[newIdx], live[idx]];
+      persist('Reordered');
+    }
+
+    function deleteItem(id) {
+      if (!confirm('Delete this link?')) return;
+      live = live.filter(i => i.id !== id);
+      if (editingId === id) resetForm();
+      persist('Deleted');
+    }
+
+    function startEdit(id) {
+      const item = live.find(i => i.id === id);
+      if (!item) return;
+      editingId = id;
+      el.icon.value = item.icon || '';
+      el.name.value = item.name || '';
+      el.url.value = item.url || '';
+      el.desc.value = item.description || '';
+      el.formTitle.textContent = 'Edit link';
+      el.saveBtn.textContent = 'Save changes';
+      el.cancelBtn.style.display = 'inline-block';
+      el.name.focus();
+    }
+
+    function resetForm() {
+      editingId = null;
+      el.icon.value = '';
+      el.name.value = '';
+      el.url.value = '';
+      el.desc.value = '';
+      el.formTitle.textContent = 'Add a link';
+      el.saveBtn.textContent = 'Add link';
+      el.cancelBtn.style.display = 'none';
+    }
+
+    el.saveBtn.addEventListener('click', () => {
+      const name = el.name.value.trim();
+      const url = el.url.value.trim();
+      if (!name || !url) { alert('Name and URL are required.'); return; }
+      if (!/^https?:\/\//i.test(url)) { alert('URL should start with http:// or https://'); return; }
+      if (editingId) {
+        const item = live.find(i => i.id === editingId);
+        item.icon = el.icon.value.trim();
+        item.name = name;
+        item.url = url;
+        item.description = el.desc.value.trim();
+        resetForm();
+        persist('Updated — live now');
+      } else {
+        live.push({ id: uid(), icon: el.icon.value.trim(), name, url, description: el.desc.value.trim() });
+        resetForm();
+        persist('Added — live now');
+      }
+    });
+
+    el.cancelBtn.addEventListener('click', resetForm);
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(live, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'links-backup.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Backup downloaded');
+    });
+
+    (async function boot() {
+      try {
+        live = await window.LinksAPI.list();
+        el.mainUi.style.display = 'block';
+        renderList();
+      } catch (err) {
+        el.loadError.style.display = 'block';
+        el.loadError.textContent = 'Could not reach the App Hub API (' + err.message + '). Make sure this page is served from the deployed Netlify site (not opened as a local file), then refresh.';
+      }
+    })();
+  </script>
+</body>
+</html>

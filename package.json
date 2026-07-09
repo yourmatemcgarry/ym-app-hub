@@ -1,0 +1,8 @@
+{
+  "name": "your-mates-brewing-app-hub",
+  "private": true,
+  "description": "Your Mates Brewing internal App Hub — landing page + link manager backed by Netlify Blobs.",
+  "dependencies": {
+    "@netlify/blobs": "^8.0.0"
+  }
+}
