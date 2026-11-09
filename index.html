@@ -29,6 +29,24 @@
     </div>
     <div id="loading" class="empty-state">Loading…</div>
 
+    <!-- Password-protected management links -->
+    <section class="mgmt" id="mgmt">
+      <div id="mgmtLocked">
+        <button class="btn" id="mgmtToggle" type="button">🔒 Management links</button>
+        <form class="unlock-form" id="mgmtForm" style="display:none;">
+          <input type="password" id="mgmtPass" placeholder="Password" autocomplete="current-password">
+          <button class="btn primary" type="submit">Unlock</button>
+        </form>
+        <div class="unlock-error" id="mgmtError"></div>
+      </div>
+      <div id="mgmtUnlocked" style="display:none;">
+        <h2 class="section-title">🔓 Management links</h2>
+        <div id="mgmtGrid" class="link-grid"></div>
+        <div id="mgmtEmpty" class="empty-state" style="display:none;">No management links yet.</div>
+        <div class="btn-row"><button class="btn small ghost" id="mgmtLock" type="button">Lock</button></div>
+      </div>
+    </section>
+
     <footer class="hub-footer">
       <a href="admin.html">Manage links</a>
     </footer>
@@ -36,40 +54,16 @@
 
   <script src="api.js"></script>
   <script>
+    const PW_KEY = 'ymb_mgmt_pw';
     const grid = document.getElementById('grid');
     const emptyEl = document.getElementById('empty');
     const noResultsEl = document.getElementById('noresults');
     const loadingEl = document.getElementById('loading');
     const search = document.getElementById('search');
+    const mgmtGrid = document.getElementById('mgmtGrid');
+    const mgmtEmpty = document.getElementById('mgmtEmpty');
     let links = [];
-
-    function render(list) {
-      grid.innerHTML = '';
-      if (links.length === 0) {
-        emptyEl.style.display = 'block';
-        noResultsEl.style.display = 'none';
-        return;
-      }
-      emptyEl.style.display = 'none';
-      if (list.length === 0) {
-        noResultsEl.style.display = 'block';
-        return;
-      }
-      noResultsEl.style.display = 'none';
-      for (const item of list) {
-        const a = document.createElement('a');
-        a.className = 'link-card';
-        a.href = item.url;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.innerHTML = `
-          <span class="icon">${item.icon || '🔗'}</span>
-          <div class="name">${escapeHtml(item.name || 'Untitled')}</div>
-          <div class="desc">${escapeHtml(item.description || '')}</div>
-        `;
-        grid.appendChild(a);
-      }
-    }
+    let mgmtLinks = [];
 
     function escapeHtml(str) {
       const div = document.createElement('div');
@@ -77,26 +71,108 @@
       return div.innerHTML;
     }
 
-    search.addEventListener('input', () => {
+    function cards(container, list) {
+      container.innerHTML = '';
+      for (const item of list) {
+        const a = document.createElement('a');
+        a.className = 'link-card';
+        a.href = item.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = `
+          <span class="icon">${escapeHtml(item.icon || '🔗')}</span>
+          <div class="name">${escapeHtml(item.name || 'Untitled')}</div>
+          <div class="desc">${escapeHtml(item.description || '')}</div>
+        `;
+        container.appendChild(a);
+      }
+    }
+
+    function matches(item, q) {
+      return (item.name || '').toLowerCase().includes(q) ||
+             (item.description || '').toLowerCase().includes(q);
+    }
+
+    function render() {
       const q = search.value.trim().toLowerCase();
-      const filtered = links.filter(item =>
-        (item.name || '').toLowerCase().includes(q) ||
-        (item.description || '').toLowerCase().includes(q)
-      );
-      render(filtered);
+      const list = links.filter(i => matches(i, q));
+      cards(grid, list);
+      emptyEl.style.display = links.length === 0 ? 'block' : 'none';
+      noResultsEl.style.display = (links.length > 0 && list.length === 0) ? 'block' : 'none';
+
+      const mlist = mgmtLinks.filter(i => matches(i, q));
+      cards(mgmtGrid, mlist);
+      mgmtEmpty.style.display = mgmtLinks.length === 0 ? 'block' : 'none';
+    }
+
+    search.addEventListener('input', render);
+
+    // ---- management unlock ----
+    const el = {
+      locked: document.getElementById('mgmtLocked'),
+      unlocked: document.getElementById('mgmtUnlocked'),
+      toggle: document.getElementById('mgmtToggle'),
+      form: document.getElementById('mgmtForm'),
+      pass: document.getElementById('mgmtPass'),
+      error: document.getElementById('mgmtError'),
+    };
+
+    function getSavedPw() { try { return sessionStorage.getItem(PW_KEY); } catch (e) { return null; } }
+    function savePw(p) { try { sessionStorage.setItem(PW_KEY, p); } catch (e) {} }
+    function clearPw() { try { sessionStorage.removeItem(PW_KEY); } catch (e) {} }
+
+    async function unlock(password, silent) {
+      try {
+        mgmtLinks = await window.LinksAPI.mgmtList(password);
+      } catch (err) {
+        if (err.message === 'WRONG_PASSWORD') {
+          clearPw();
+          if (!silent) el.error.textContent = 'Incorrect password.';
+        } else if (!silent) {
+          el.error.textContent = 'Could not check the password right now. Try again.';
+        }
+        return false;
+      }
+      savePw(password);
+      el.error.textContent = '';
+      el.pass.value = '';
+      el.locked.style.display = 'none';
+      el.unlocked.style.display = 'block';
+      render();
+      return true;
+    }
+
+    el.toggle.addEventListener('click', () => {
+      el.form.style.display = el.form.style.display === 'none' ? 'flex' : 'none';
+      if (el.form.style.display === 'flex') el.pass.focus();
+    });
+
+    el.form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (el.pass.value) unlock(el.pass.value, false);
+    });
+
+    document.getElementById('mgmtLock').addEventListener('click', () => {
+      clearPw();
+      mgmtLinks = [];
+      el.unlocked.style.display = 'none';
+      el.locked.style.display = 'block';
+      el.form.style.display = 'none';
+      render();
     });
 
     (async function init() {
       try {
         links = await window.LinksAPI.list();
       } catch (err) {
-        links = [];
         loadingEl.textContent = 'Could not load the app list right now. Try refreshing.';
         console.error(err);
         return;
       }
       loadingEl.style.display = 'none';
-      render(links);
+      render();
+      const saved = getSavedPw();
+      if (saved) unlock(saved, true);
     })();
   </script>
 </body>

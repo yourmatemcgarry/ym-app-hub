@@ -1,9 +1,11 @@
 /*
   YOUR MATES BREWING — App Hub API client
   =========================================
-  Talks to the real backend at /api/links (netlify/functions/links.mjs),
-  which stores the list in Netlify Blobs. Same-origin, so no setup, no
-  CORS, no config file — just works once this site is deployed.
+  Talks to the real backend (netlify/functions/*.mjs, stored in Netlify
+  Blobs). Same-origin, so no setup and no CORS.
+
+    /api/links       public links (open to everyone)
+    /api/management  management links (password checked on the server)
 */
 
 window.LinksAPI = {
@@ -20,6 +22,29 @@ window.LinksAPI = {
       body: JSON.stringify(links),
     });
     if (!res.ok) throw new Error('Could not save links (HTTP ' + res.status + ')');
+    return res.json();
+  },
+
+  // Throws Error('WRONG_PASSWORD') if the password is rejected.
+  async mgmtList(password) {
+    const res = await fetch('/api/management', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (res.status === 401) throw new Error('WRONG_PASSWORD');
+    if (!res.ok) throw new Error('Could not load management links (HTTP ' + res.status + ')');
+    return res.json();
+  },
+
+  async mgmtSave(password, links) {
+    const res = await fetch('/api/management', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, links }),
+    });
+    if (res.status === 401) throw new Error('WRONG_PASSWORD');
+    if (!res.ok) throw new Error('Could not save management links (HTTP ' + res.status + ')');
     return res.json();
   },
 };

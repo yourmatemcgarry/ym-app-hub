@@ -371,3 +371,62 @@ input[type=text]:focus, input[type=url]:focus, textarea:focus {
 }
 
 .back-link:hover { color: var(--accent); }
+
+/* ---- Management (password-protected) section ---- */
+
+select {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+select:focus { border-color: var(--accent); }
+
+input[type=password] {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+input[type=password]:focus { border-color: var(--accent); }
+
+.mgmt {
+  margin-top: 44px;
+  padding-top: 28px;
+  border-top: 1px dashed var(--border);
+}
+
+.section-title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
+.unlock-form {
+  display: flex;
+  gap: 8px;
+  max-width: 360px;
+  margin-top: 12px;
+}
+
+.unlock-form input { flex: 1; }
+
+.unlock-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 8px;
+  min-height: 1em;
+}

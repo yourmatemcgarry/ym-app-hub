@@ -16,7 +16,7 @@
     </header>
 
     <div class="admin-note">
-      Changes here save automatically and go live on the App Hub for everyone within a second or two — same as the pricing guide. No publishing step, no login.
+      Changes save automatically and go live for everyone within a second or two. Management links are password protected — unlock them below to view or edit.
     </div>
 
     <div id="loadError" class="admin-note" style="display:none;border-left-color:var(--danger);"></div>
@@ -24,6 +24,13 @@
     <div id="mainUi" style="display:none;">
       <div class="panel">
         <h2 id="formTitle">Add a link</h2>
+        <div class="form-row">
+          <label for="f_section">Section</label>
+          <select id="f_section">
+            <option value="public">Public (everyone sees it)</option>
+            <option value="management">🔒 Management (password protected)</option>
+          </select>
+        </div>
         <div class="form-row">
           <label for="f_icon">Icon</label>
           <input type="text" id="f_icon" placeholder="🍺 (any emoji, optional)" maxlength="4">
@@ -47,17 +54,32 @@
       </div>
 
       <div class="panel">
-        <h2>Current links (<span id="countLabel">0</span>)</h2>
-        <div id="linkList"></div>
-        <div id="emptyList" style="display:none;color:var(--text-muted);font-size:13.5px;">
-          No links yet — add your first one above.
+        <h2>Public links (<span id="countPublic">0</span>)</h2>
+        <div id="listPublic"></div>
+        <div id="emptyPublic" style="display:none;color:var(--text-muted);font-size:13.5px;">No public links yet.</div>
+      </div>
+
+      <div class="panel">
+        <h2>🔒 Management links <span id="countMgmtWrap" style="display:none;">(<span id="countMgmt">0</span>)</span></h2>
+        <div id="mgmtLocked">
+          <p style="color:var(--text-muted);font-size:13.5px;margin:0;">Enter the password to view and edit these.</p>
+          <form class="unlock-form" id="mgmtForm">
+            <input type="password" id="mgmtPass" placeholder="Password" autocomplete="current-password">
+            <button class="btn primary" type="submit">Unlock</button>
+          </form>
+          <div class="unlock-error" id="mgmtError"></div>
+        </div>
+        <div id="mgmtUnlocked" style="display:none;">
+          <div id="listMgmt"></div>
+          <div id="emptyMgmt" style="display:none;color:var(--text-muted);font-size:13.5px;">No management links yet.</div>
+          <div class="btn-row"><button class="btn small ghost" id="mgmtLockBtn" type="button">Lock</button></div>
         </div>
       </div>
 
       <div class="panel">
         <h2>Backup</h2>
         <p style="color:var(--text-muted);font-size:13.5px;margin-top:0;">
-          Links save live automatically — this is just an optional export in case you ever want a local copy.
+          Links save live automatically — this is just an optional export. Management links are included only while unlocked.
         </p>
         <div class="btn-row">
           <button class="btn" id="downloadBtn">Download backup (links.json)</button>
@@ -70,29 +92,24 @@
 
   <script src="api.js"></script>
   <script>
-    let live = [];
-    let editingId = null;
+    const PW_KEY = 'ymb_mgmt_pw';
+    const lists = { public: [], management: null }; // management stays null until unlocked
+    let password = null;
+    let editing = null; // { kind, id }
 
+    const $ = (id) => document.getElementById(id);
     const el = {
-      icon: document.getElementById('f_icon'),
-      name: document.getElementById('f_name'),
-      url: document.getElementById('f_url'),
-      desc: document.getElementById('f_desc'),
-      saveBtn: document.getElementById('saveBtn'),
-      cancelBtn: document.getElementById('cancelBtn'),
-      formTitle: document.getElementById('formTitle'),
-      list: document.getElementById('linkList'),
-      emptyList: document.getElementById('emptyList'),
-      countLabel: document.getElementById('countLabel'),
-      statusBadge: document.getElementById('statusBadge'),
-      toast: document.getElementById('toast'),
-      mainUi: document.getElementById('mainUi'),
-      loadError: document.getElementById('loadError'),
+      section: $('f_section'), icon: $('f_icon'), name: $('f_name'), url: $('f_url'), desc: $('f_desc'),
+      saveBtn: $('saveBtn'), cancelBtn: $('cancelBtn'), formTitle: $('formTitle'),
+      statusBadge: $('statusBadge'), toast: $('toast'),
+      mainUi: $('mainUi'), loadError: $('loadError'),
+      listPublic: $('listPublic'), emptyPublic: $('emptyPublic'), countPublic: $('countPublic'),
+      listMgmt: $('listMgmt'), emptyMgmt: $('emptyMgmt'), countMgmt: $('countMgmt'), countMgmtWrap: $('countMgmtWrap'),
+      mgmtLocked: $('mgmtLocked'), mgmtUnlocked: $('mgmtUnlocked'),
+      mgmtForm: $('mgmtForm'), mgmtPass: $('mgmtPass'), mgmtError: $('mgmtError'),
     };
 
-    function uid() {
-      return 'l_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    }
+    function uid() { return 'l_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
     function escapeHtml(str) {
       const div = document.createElement('div');
@@ -106,15 +123,23 @@
       setTimeout(() => el.toast.classList.remove('show'), 2200);
     }
 
-    function renderList() {
-      el.list.innerHTML = '';
-      el.countLabel.textContent = live.length;
-      el.emptyList.style.display = live.length ? 'none' : 'block';
-      live.forEach((item, idx) => {
+    function getSavedPw() { try { return sessionStorage.getItem(PW_KEY); } catch (e) { return null; } }
+    function savePw(p) { try { sessionStorage.setItem(PW_KEY, p); } catch (e) {} }
+    function clearPw() { try { sessionStorage.removeItem(PW_KEY); } catch (e) {} }
+
+    function renderRows(kind) {
+      const arr = lists[kind] || [];
+      const container = kind === 'public' ? el.listPublic : el.listMgmt;
+      const emptyEl = kind === 'public' ? el.emptyPublic : el.emptyMgmt;
+      const countEl = kind === 'public' ? el.countPublic : el.countMgmt;
+      container.innerHTML = '';
+      countEl.textContent = arr.length;
+      emptyEl.style.display = arr.length ? 'none' : 'block';
+      arr.forEach((item, idx) => {
         const row = document.createElement('div');
         row.className = 'link-row';
         row.innerHTML = `
-          <div class="icon">${item.icon || '🔗'}</div>
+          <div class="icon">${escapeHtml(item.icon || '🔗')}</div>
           <div class="info">
             <div class="name">${escapeHtml(item.name)}</div>
             <div class="url">${escapeHtml(item.url)}</div>
@@ -122,54 +147,63 @@
           </div>
           <div class="actions">
             <button class="btn small" data-act="up" ${idx === 0 ? 'disabled' : ''}>↑</button>
-            <button class="btn small" data-act="down" ${idx === live.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn small" data-act="down" ${idx === arr.length - 1 ? 'disabled' : ''}>↓</button>
             <button class="btn small" data-act="edit">Edit</button>
             <button class="btn small danger" data-act="del">Delete</button>
           </div>
         `;
-        row.querySelector('[data-act=up]').addEventListener('click', () => moveItem(idx, -1));
-        row.querySelector('[data-act=down]').addEventListener('click', () => moveItem(idx, 1));
-        row.querySelector('[data-act=edit]').addEventListener('click', () => startEdit(item.id));
-        row.querySelector('[data-act=del]').addEventListener('click', () => deleteItem(item.id));
-        el.list.appendChild(row);
+        row.querySelector('[data-act=up]').addEventListener('click', () => moveItem(kind, idx, -1));
+        row.querySelector('[data-act=down]').addEventListener('click', () => moveItem(kind, idx, 1));
+        row.querySelector('[data-act=edit]').addEventListener('click', () => startEdit(kind, item.id));
+        row.querySelector('[data-act=del]').addEventListener('click', () => deleteItem(kind, item.id));
+        container.appendChild(row);
       });
     }
 
-    async function persist(successMsg) {
+    async function persist(kind, successMsg) {
       el.statusBadge.style.display = 'inline-block';
       el.statusBadge.textContent = 'saving…';
       el.statusBadge.className = 'status-badge dirty';
       try {
-        await window.LinksAPI.save(live);
+        if (kind === 'public') await window.LinksAPI.save(lists.public);
+        else await window.LinksAPI.mgmtSave(password, lists.management);
         el.statusBadge.textContent = 'live ✓';
         el.statusBadge.className = 'status-badge clean';
         showToast(successMsg);
       } catch (err) {
         el.statusBadge.textContent = 'save failed';
         el.statusBadge.className = 'status-badge dirty';
-        alert('Could not save (' + err.message + '). Check your connection and try again — your change is still in this form/list, nothing is lost yet.');
+        if (err.message === 'WRONG_PASSWORD') {
+          lockMgmt();
+          alert('The management password was rejected — please unlock again.');
+        } else {
+          alert('Could not save (' + err.message + '). Check your connection and try again — your change is still on screen, nothing is lost yet.');
+        }
       }
-      renderList();
+      renderRows(kind);
     }
 
-    function moveItem(idx, dir) {
-      const newIdx = idx + dir;
-      if (newIdx < 0 || newIdx >= live.length) return;
-      [live[idx], live[newIdx]] = [live[newIdx], live[idx]];
-      persist('Reordered');
+    function moveItem(kind, idx, dir) {
+      const arr = lists[kind];
+      const n = idx + dir;
+      if (n < 0 || n >= arr.length) return;
+      [arr[idx], arr[n]] = [arr[n], arr[idx]];
+      persist(kind, 'Reordered');
     }
 
-    function deleteItem(id) {
+    function deleteItem(kind, id) {
       if (!confirm('Delete this link?')) return;
-      live = live.filter(i => i.id !== id);
-      if (editingId === id) resetForm();
-      persist('Deleted');
+      lists[kind] = lists[kind].filter(i => i.id !== id);
+      if (editing && editing.id === id) resetForm();
+      persist(kind, 'Deleted');
     }
 
-    function startEdit(id) {
-      const item = live.find(i => i.id === id);
+    function startEdit(kind, id) {
+      const item = lists[kind].find(i => i.id === id);
       if (!item) return;
-      editingId = id;
+      editing = { kind, id };
+      el.section.value = kind;
+      el.section.disabled = true;
       el.icon.value = item.icon || '';
       el.name.value = item.name || '';
       el.url.value = item.url || '';
@@ -181,7 +215,8 @@
     }
 
     function resetForm() {
-      editingId = null;
+      editing = null;
+      el.section.disabled = false;
       el.icon.value = '';
       el.name.value = '';
       el.url.value = '';
@@ -192,29 +227,76 @@
     }
 
     el.saveBtn.addEventListener('click', () => {
+      const kind = editing ? editing.kind : el.section.value;
       const name = el.name.value.trim();
       const url = el.url.value.trim();
+      if (kind === 'management' && lists.management === null) {
+        alert('Unlock the management links first (password box further down), then add the link.');
+        return;
+      }
       if (!name || !url) { alert('Name and URL are required.'); return; }
       if (!/^https?:\/\//i.test(url)) { alert('URL should start with http:// or https://'); return; }
-      if (editingId) {
-        const item = live.find(i => i.id === editingId);
+      if (editing) {
+        const item = lists[kind].find(i => i.id === editing.id);
         item.icon = el.icon.value.trim();
         item.name = name;
         item.url = url;
         item.description = el.desc.value.trim();
         resetForm();
-        persist('Updated — live now');
+        persist(kind, 'Updated — live now');
       } else {
-        live.push({ id: uid(), icon: el.icon.value.trim(), name, url, description: el.desc.value.trim() });
+        lists[kind].push({ id: uid(), icon: el.icon.value.trim(), name, url, description: el.desc.value.trim() });
         resetForm();
-        persist('Added — live now');
+        persist(kind, 'Added — live now');
       }
     });
 
     el.cancelBtn.addEventListener('click', resetForm);
 
-    document.getElementById('downloadBtn').addEventListener('click', () => {
-      const blob = new Blob([JSON.stringify(live, null, 2)], { type: 'application/json' });
+    // ---- management lock/unlock ----
+    async function unlock(pw, silent) {
+      try {
+        lists.management = await window.LinksAPI.mgmtList(pw);
+      } catch (err) {
+        if (err.message === 'WRONG_PASSWORD') {
+          clearPw();
+          if (!silent) el.mgmtError.textContent = 'Incorrect password.';
+        } else if (!silent) {
+          el.mgmtError.textContent = 'Could not check the password right now. Try again.';
+        }
+        return false;
+      }
+      password = pw;
+      savePw(pw);
+      el.mgmtError.textContent = '';
+      el.mgmtPass.value = '';
+      el.mgmtLocked.style.display = 'none';
+      el.mgmtUnlocked.style.display = 'block';
+      el.countMgmtWrap.style.display = 'inline';
+      renderRows('management');
+      return true;
+    }
+
+    function lockMgmt() {
+      password = null;
+      lists.management = null;
+      clearPw();
+      if (editing && editing.kind === 'management') resetForm();
+      el.mgmtUnlocked.style.display = 'none';
+      el.mgmtLocked.style.display = 'block';
+      el.countMgmtWrap.style.display = 'none';
+    }
+
+    el.mgmtForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (el.mgmtPass.value) unlock(el.mgmtPass.value, false);
+    });
+    $('mgmtLockBtn').addEventListener('click', lockMgmt);
+
+    $('downloadBtn').addEventListener('click', () => {
+      const data = { public: lists.public };
+      if (lists.management !== null) data.management = lists.management;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -226,13 +308,16 @@
 
     (async function boot() {
       try {
-        live = await window.LinksAPI.list();
+        lists.public = await window.LinksAPI.list();
         el.mainUi.style.display = 'block';
-        renderList();
+        renderRows('public');
       } catch (err) {
         el.loadError.style.display = 'block';
         el.loadError.textContent = 'Could not reach the App Hub API (' + err.message + '). Make sure this page is served from the deployed Netlify site (not opened as a local file), then refresh.';
+        return;
       }
+      const saved = getSavedPw();
+      if (saved) unlock(saved, true);
     })();
   </script>
 </body>

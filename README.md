@@ -24,6 +24,14 @@ A landing page listing every internal tool/app, plus a manager page to add/edit 
 
 Open `admin.html`, add/edit/delete/reorder links. Each change saves immediately — the badge next to the page title shows "live ✓" once it's confirmed. The App Hub (`index.html`) reflects it right away for every visitor. No downloading files, no re-uploading, no coming back to Claude.
 
+## Management links (password protected)
+
+The landing page has a "🔒 Management links" button at the bottom. Entering the password reveals a second set of links. The password is checked on the server (`netlify/functions/management.mjs`), so the links are never sent to the browser without it — viewing the page source won't reveal them.
+
+- Add or edit them on `admin.html`: pick **Management** in the Section dropdown (unlock first using the password box in the Management panel).
+- To change the password, set a `MANAGEMENT_PASSWORD` environment variable in Netlify (Site settings → Environment variables) and redeploy; it overrides the default written in `management.mjs`. Keep the repo private if you leave the password in that file.
+- Note: `admin.html` itself is still open to anyone — only the management links inside it are locked.
+
 ## Notes
 
 - **No login:** anyone with the `admin.html` URL can change links. Don't publish that link publicly — only share it with people you trust to edit the page (same as you'd treat an admin panel on any of your other tools).
